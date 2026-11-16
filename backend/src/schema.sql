@@ -21,3 +21,6 @@ CREATE TABLE IF NOT EXISTS reminder_log (
   sent_at TIMESTAMPTZ DEFAULT now(),
   PRIMARY KEY (document_id, user_id, channel, days_before)
 );
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS created_by INT;
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_uq ON users (lower(email));
