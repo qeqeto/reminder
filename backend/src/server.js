@@ -5,6 +5,8 @@ const crypto = require('crypto');
 const { pool, init } = require('./db');
 const { startBot } = require('./bot');
 const { runReminders } = require('./cron');
+const { KEYS, SECRET: SECRETS, getSettings, setSetting } = require('./settings');
+const { sendEmail } = require('./notify');
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_URL || true }));
@@ -32,7 +34,7 @@ app.use('/api', (req, res, next) => {
 const adminOnly = (req, res, next) => req.auth.role === 'admin' ? next() : res.status(403).json({ error: 'მხოლოდ ადმინისთვის' });
 
 app.get('/api/me', wrap(async (req, res) => {
-  const bot = process.env.TELEGRAM_BOT_USERNAME || null;
+  const bot = (await getSettings()).TELEGRAM_BOT_USERNAME || null;
   if (req.auth.role === 'admin') return res.json({ role: 'admin', id: 0, name: 'ადმინი', bot });
   const { rows } = await pool.query('SELECT id,name,link_code,(telegram_chat_id IS NOT NULL) tg FROM users WHERE id=$1', [req.auth.id]);
   if (!rows[0]) return res.status(401).json({ error: 'მომხმარებელი ვერ მოიძებნა' });
@@ -87,6 +89,33 @@ app.delete('/api/documents/:id', wrap(async (req, res) => {
   const r = await pool.query('DELETE FROM documents WHERE id=$1 AND ($2 OR created_by=$3)', [req.params.id, req.auth.role === 'admin', req.auth.id]);
   if (!r.rowCount) return res.status(403).json({ error: 'ამ დოკუმენტის წაშლა არ შეგიძლია' });
   res.json({ ok: true });
+}));
+
+// --- პარამეტრები (მხოლოდ ადმინი): SMTP და Telegram ---
+app.get('/api/settings', adminOnly, wrap(async (_, res) => {
+  const s = await getSettings(), values = {}, has = {};
+  for (const k of KEYS) { if (SECRETS.includes(k)) has[k] = !!s[k]; else values[k] = s[k]; }
+  res.json({ values, has });
+}));
+app.put('/api/settings', adminOnly, wrap(async (req, res) => {
+  const b = req.body;
+  for (const k of KEYS) {
+    if (b[k] === undefined || k === 'TELEGRAM_BOT_USERNAME') continue;
+    const v = String(b[k]).trim();
+    if (SECRETS.includes(k) && v === '') continue; // ცარიელი საიდუმლო = არ შეიცვალოს
+    if (k === 'TELEGRAM_BOT_TOKEN') {
+      const r = await fetch(`https://api.telegram.org/bot${v}/getMe`).then(x => x.json()).catch(() => ({}));
+      if (!r.ok) return res.status(400).json({ error: 'Telegram ტოკენი არასწორია' });
+      await setSetting('TELEGRAM_BOT_USERNAME', r.result.username);
+    }
+    await setSetting(k, v);
+  }
+  res.json({ ok: true });
+}));
+app.post('/api/settings/test-email', adminOnly, wrap(async (req, res) => {
+  const to = req.body.to || process.env.ADMIN_EMAIL;
+  await sendEmail(to, 'სატესტო მეილი', 'SMTP სწორად მუშაობს ✅');
+  res.json({ ok: true, to });
 }));
 
 // ხელით გაშვება (ტესტისთვის)

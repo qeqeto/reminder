@@ -36,7 +36,7 @@ button.del{background:transparent;color:#b3261e;border-color:var(--line)}
 <script src="config.js"></script>
 <script>
 const $=s=>document.querySelector(s);
-let token=localStorage.getItem('t'),users=[],docs=[],me={},edit=null;
+let token=localStorage.getItem('t'),users=[],docs=[],me={},st={values:{},has:{}},edit=null;
 async function api(p,m='GET',b){
   const r=await fetch(API_URL+'/api'+p,{method:m,headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:b&&JSON.stringify(b)});
   const j=await r.json();if(!r.ok){if(r.status===401&&token){token=null;localStorage.removeItem('t');render()}throw new Error(j.error||'შეცდომა')}return j}
@@ -50,7 +50,7 @@ function login(){
 
 async function render(){
   if(!token)return login();
-  try{me=await api('/me');users=(await api('/users')).users;docs=await api('/documents')}catch(e){return login()}
+  try{me=await api('/me');if(me.role==='admin')st=await api('/settings');users=(await api('/users')).users;docs=await api('/documents')}catch(e){return login()}
   const adm=me.role==='admin',can=d=>adm||d.created_by===me.id;
   const e=edit||{id:null,title:'',deadline:'',remind_days:[7,3,1,0],user_ids:[]};
   $('#app').innerHTML=`
@@ -73,13 +73,27 @@ async function render(){
   ${adm?`<h2>მომხმარებლები</h2>
   <div class="card row"><input id="un" placeholder="სახელი"><input id="ue" type="email" placeholder="ელფოსტა"><input id="up" type="password" placeholder="პაროლი (შესასვლელად)"><button id="ua">მომხმარებლის დამატება</button></div>
   ${users.map(u=>`<div class="user"><div><b>${esc(u.name)}</b> <span class="tag">${esc(u.email||'ელფოსტის გარეშე')} · Telegram: ${u.tg?'დაკავშირებულია':'არ არის დაკავშირებული'}</span></div>
-  <div class="row">${!u.tg&&me.bot?`<a class="tag" href="https://t.me/${me.bot}?start=${u.link_code}" target="_blank">Telegram-ის ბმული</a>`:''}<button class="del" data-u="${u.id}">წაშლა</button></div></div>`).join('')}`:''}`;
+  <div class="row">${!u.tg&&me.bot?`<a class="tag" href="https://t.me/${me.bot}?start=${u.link_code}" target="_blank">Telegram-ის ბმული</a>`:''}<button class="del" data-u="${u.id}">წაშლა</button></div></div>`).join('')}
+  <h2>ინტეგრაციები</h2>
+  <div class="card"><b>Telegram ბოტი</b>
+    <div class="row" style="margin:8px 0 16px"><input id="s_tok" type="password" autocomplete="off" style="flex:1;min-width:240px" placeholder="${st.has.TELEGRAM_BOT_TOKEN?'ტოკენი შენახულია (შესაცვლელად ჩაწერე ახალი)':'ბოტის ტოკენი (@BotFather)'}"></div>
+    ${st.values.TELEGRAM_BOT_USERNAME?`<p class="tag" style="margin:-8px 0 16px">ბოტი: @${esc(st.values.TELEGRAM_BOT_USERNAME)}</p>`:''}
+    <b>ელფოსტა (SMTP)</b>
+    <div class="row" style="margin:8px 0">
+      <input id="s_host" placeholder="SMTP სერვერი" value="${esc(st.values.SMTP_HOST||'')}">
+      <input id="s_port" placeholder="პორტი" style="width:90px" value="${esc(st.values.SMTP_PORT||'587')}">
+      <input id="s_user" placeholder="მომხმარებელი" value="${esc(st.values.SMTP_USER||'')}">
+      <input id="s_pass" type="password" autocomplete="off" placeholder="${st.has.SMTP_PASS?'პაროლი შენახულია':'პაროლი / App Password'}">
+      <input id="s_from" placeholder="გამგზავნი (From)" value="${esc(st.values.SMTP_FROM||'')}"></div>
+    <div class="row"><button id="ss">პარამეტრების შენახვა</button><button class="ghost" id="stest">სატესტო მეილის გაგზავნა</button></div></div>`:''}`;
   const guard=f=>async()=>{try{await f();render()}catch(x){$('#err').textContent=x.message}};
   $('#out').onclick=()=>{token=null;localStorage.removeItem('t');render()};
   if($('#run'))$('#run').onclick=guard(async()=>{const r=await api('/run-reminders','POST');alert(r.log.join('\n')||'გასაგზავნი არაფერია')});
   $('#save').onclick=guard(async()=>{const b={title:$('#t').value,deadline:$('#d').value,remind_days:$('#r').value.split(',').map(Number).filter(n=>!isNaN(n)),user_ids:[...document.querySelectorAll('.checks input:checked')].map(c=>+c.value)};
     if(!b.title||!b.deadline)throw new Error('შეავსე სახელი და თარიღი');await api(e.id?'/documents/'+e.id:'/documents',e.id?'PUT':'POST',b);edit=null});
   if($('#cancel'))$('#cancel').onclick=()=>{edit=null;render()};
+  if($('#ss'))$('#ss').onclick=guard(async()=>{await api('/settings','PUT',{TELEGRAM_BOT_TOKEN:$('#s_tok').value,SMTP_HOST:$('#s_host').value,SMTP_PORT:$('#s_port').value,SMTP_USER:$('#s_user').value,SMTP_PASS:$('#s_pass').value,SMTP_FROM:$('#s_from').value});alert('შენახულია')});
+  if($('#stest'))$('#stest').onclick=guard(async()=>{const x=await api('/settings/test-email','POST',{});alert('გაიგზავნა: '+x.to)});
   if($('#ua'))$('#ua').onclick=guard(async()=>{if(!$('#un').value)throw new Error('ჩაწერე სახელი');await api('/users','POST',{name:$('#un').value,email:$('#ue').value,password:$('#up').value})});
   document.querySelectorAll('[data-e]').forEach(b=>b.onclick=()=>{edit=docs.find(d=>d.id==b.dataset.e);render();scrollTo(0,0)});
   document.querySelectorAll('[data-x]').forEach(b=>b.onclick=guard(async()=>{if(confirm('წავშალო დოკუმენტი?'))await api('/documents/'+b.dataset.x,'DELETE')}));

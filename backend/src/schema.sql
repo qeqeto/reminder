@@ -24,3 +24,4 @@ CREATE TABLE IF NOT EXISTS reminder_log (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS created_by INT;
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_uq ON users (lower(email));
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
